@@ -23,6 +23,23 @@ def get_target_directory() -> str:
     return selected_directory
 
 
+def apply_mild_gaussian_blur(input_image_array: np.ndarray) -> np.ndarray:
+    return cv2.GaussianBlur(input_image_array, (3, 3), 0.5)
+
+def apply_mild_noise_injection(input_image_array: np.ndarray) -> np.ndarray:
+    noise_matrix = np.zeros(input_image_array.shape, dtype=np.int16)
+    cv2.randn(noise_matrix, 0, 15)
+    blended_image_matrix = cv2.addWeighted(input_image_array.astype(np.int16), 1.0, noise_matrix, 1.0, 0.0)
+    return np.clip(blended_image_matrix, 0, 255).astype(np.uint8)
+
+def apply_mild_chromatic_aberration(input_image_array: np.ndarray) -> np.ndarray:
+    output_image_matrix = np.empty_like(input_image_array)
+    output_image_matrix[:, :, 0] = np.roll(input_image_array[:, :, 0], -2, axis=1)
+    output_image_matrix[:, :, 1] = input_image_array[:, :, 1]
+    output_image_matrix[:, :, 2] = np.roll(input_image_array[:, :, 2], 2, axis=1)
+    return output_image_matrix
+
+
 @njit(fastmath=True, cache=True)
 def get_luminance(r, g, b):
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
@@ -491,6 +508,30 @@ class PixelSortApp:
                                    wrap_action(lambda: sort_circular_action('circle'))))
         self.buttons.append(Button(base_x + half_width + 5, base_y, half_width, button_height, "BURST",
                                    wrap_action(lambda: sort_circular_action('burst'))))
+
+        base_y += button_height + 20
+
+        def trigger_gaussian_blur() -> None:
+            self.save_state()
+            self.img_curr = apply_mild_gaussian_blur(self.img_curr)
+
+        def trigger_noise_injection() -> None:
+            self.save_state()
+            self.img_curr = apply_mild_noise_injection(self.img_curr)
+
+        def trigger_chromatic_aberration() -> None:
+            self.save_state()
+            self.img_curr = apply_mild_chromatic_aberration(self.img_curr)
+
+        self.buttons.append(
+            Button(base_x, base_y, button_width, button_height, "BLUR (MILD)", wrap_action(trigger_gaussian_blur)))
+        base_y += button_height + 5
+        self.buttons.append(
+            Button(base_x, base_y, button_width, button_height, "NOISE (MILD)", wrap_action(trigger_noise_injection)))
+        base_y += button_height + 5
+        self.buttons.append(
+            Button(base_x, base_y, button_width, button_height, "RGB SHIFT", wrap_action(trigger_chromatic_aberration)))
+
         base_y += button_height + 30
 
         self.buttons.append(Button(base_x, base_y, button_width, button_height, "UNDO", wrap_action(self.undo)))
@@ -535,21 +576,15 @@ class PixelSortApp:
 
     def run(self) -> None:
         cv2.namedWindow("Pixel Sort Studio", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Pixel Sort Studio", 1280, 720)
+        cv2.resizeWindow("Pixel Sort Studio", 1440, 960)
         cv2.setMouseCallback("Pixel Sort Studio", self.mouse_callback)
         warmup_jit()
 
-        internal_width: int = 1280
-        internal_height: int = 720
+        internal_width: int = 1440
+        internal_height: int = 960
         display_width: int = internal_width - self.ui_width
 
         while True:
-            current_time = time.time()
-            if self.is_recording_sequence and (current_time - self.last_interaction_time > 30.0):
-                self.is_recording_sequence = False
-                self.record_button.text = "RECORD"
-                self.record_button.color_idle = (50, 50, 50)
-
             canvas = np.zeros((internal_height, internal_width, 3), dtype=np.uint8)
             cv2.rectangle(canvas, (0, 0), (self.ui_width, internal_height), (35, 35, 35), -1)
 
