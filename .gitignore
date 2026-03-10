@@ -1,5 +1,8 @@
 /inputs
-
 /.venv
 /.idea
-
+/inputs2
+/outputs
+/gepezet
+/deprecated
+/__pycache__
