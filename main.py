@@ -8,6 +8,8 @@ import cv2
 from PIL import Image
 from numba import njit, prange
 from pillow_heif import register_heif_opener
+from typing import Optional
+import time
 
 register_heif_opener()
 
@@ -20,7 +22,6 @@ def get_target_directory() -> str:
         sys.exit()
     return selected_directory
 
-# kurvagyors matek
 
 @njit(fastmath=True, cache=True)
 def get_luminance(r, g, b):
@@ -219,23 +220,24 @@ def warmup_jit():
 # ui
 
 class Button:
-    def __init__(self, x, y, w, h, text, callback, group_id=None, is_toggle=False):
-        self.rect = (x, y, w, h)
-        self.text = text
-        self.callback = callback
-        self.group_id = group_id
-        self.is_toggle = is_toggle
-        self.active = False
-        self.hover = False
+    def __init__(self, x: int, y: int, w: int, h: int, text: str, callback: callable, group_id: str = None, is_toggle: bool = False) -> None:
+        self.rect: tuple = (x, y, w, h)
+        self.text: str = text
+        self.callback: callable = callback
+        self.group_id: str = group_id
+        self.is_toggle: bool = is_toggle
+        self.active: bool = False
+        self.hover: bool = False
+        self.color_idle: tuple = (50, 50, 50)
 
-    def draw(self, canvas):
+    def draw(self, canvas: np.ndarray) -> None:
         x, y, w, h = self.rect
         if self.active:
             color = (0, 180, 0)
         elif self.hover:
             color = (80, 80, 80)
         else:
-            color = (50, 50, 50)
+            color = self.color_idle
 
         cv2.rectangle(canvas, (x, y), (x + w, y + h), color, -1)
         cv2.rectangle(canvas, (x, y), (x + w, y + h), (200, 200, 200), 1)
@@ -298,6 +300,11 @@ class PixelSortApp:
         self.mouse_x, self.mouse_y = 0, 0
         self.history = []
 
+        self.is_recording_sequence: bool = False
+        self.recorded_sequence: list = []
+        self.last_interaction_time: float = 0.0
+        self.record_button: Optional[Button] = None
+
         if os.path.isdir(input_path):
             exts = ('.png', '.jpg', '.jpeg', '.heic', '.heif')
             self.image_files = [
@@ -323,32 +330,25 @@ class PixelSortApp:
 
         self.setup_ui()
 
-    def load_image_from_index(self, index):
+    def load_image_from_index(self, target_index: int) -> None:
         if not self.image_files or self.image_files[0] == "NO_IMG":
             self.img_orig = np.random.randint(0, 255, (600, 800, 3), dtype=np.uint8)
             self.img_curr = self.img_orig.copy()
-            self.canvas_h, w = self.img_curr.shape[:2]
-            self.canvas_w = w + self.ui_width
             return
 
-        self.current_index = index % len(self.image_files)
-        filepath = self.image_files[self.current_index]
-        print(f"Loading: {filepath}")
+        self.current_index = target_index % len(self.image_files)
+        target_filepath = self.image_files[self.current_index]
+        print(f"Loading: {target_filepath}")
 
         try:
-            pil = Image.open(filepath).convert("RGB")
-            pil.thumbnail((1200, 900))
-            self.img_orig = np.array(pil)
+            loaded_pillow_image = Image.open(target_filepath).convert("RGB")
+            self.img_orig = np.array(loaded_pillow_image)
             self.img_curr = self.img_orig.copy()
             self.history = []
-        except Exception as e:
-            print(f"Error loading {filepath}: {e}")
+        except Exception as loading_error:
+            print(f"Error loading {target_filepath}: {loading_error}")
             self.img_orig = np.random.randint(0, 255, (600, 800, 3), dtype=np.uint8)
             self.img_curr = self.img_orig.copy()
-
-        h, w = self.img_curr.shape[:2]
-        self.canvas_h = h
-        self.canvas_w = w + self.ui_width
 
         if hasattr(self, 'buttons') and len(self.buttons) > 0:
             self.setup_ui()
@@ -364,157 +364,233 @@ class PixelSortApp:
         if len(self.history) > 0:
             self.img_curr = self.history.pop()
 
-    def setup_ui(self):
+    def setup_ui(self) -> None:
         self.buttons = []
         self.sliders = []
 
-        bx = self.img_curr.shape[1] + 10
-        by = 20
-        bw = 200
-        bh = 30
+        base_x = 10
+        base_y = 20
+        button_width = self.ui_width - 20
+        button_height = 30
+        half_width = (button_width - 5) // 2
 
-        half_w = (bw - 5) // 2
-        self.buttons.append(Button(bx, by, half_w, bh, "< PREV", lambda: self.change_image(-1)))
-        self.buttons.append(Button(bx + half_w + 5, by, half_w, bh, "NEXT >", lambda: self.change_image(1)))
-        by += bh + 20
+        def wrap_action(target_callable: callable) -> callable:
+            def wrapped_execution() -> None:
+                if self.is_recording_sequence:
+                    self.recorded_sequence.append(target_callable)
+                    self.last_interaction_time = time.time()
+                target_callable()
 
-        init_val = 60
-        if hasattr(self, 'thresh_slider'): init_val = self.thresh_slider.val
+            return wrapped_execution
 
-        self.thresh_slider = Slider(bx, by, bw, 20, 0, 255, init_val, "Threshold")
+        def toggle_record() -> None:
+            if self.is_recording_sequence:
+                self.is_recording_sequence = False
+                self.record_button.text = "RECORD"
+                self.record_button.color_idle = (50, 50, 50)
+            else:
+                self.is_recording_sequence = True
+                self.recorded_sequence = []
+                self.last_interaction_time = time.time()
+                self.record_button.text = "STOP"
+                self.record_button.color_idle = (0, 0, 200)
+
+        def play_recorded_sequence() -> None:
+            if not self.is_recording_sequence and self.recorded_sequence:
+                for recorded_action in self.recorded_sequence:
+                    recorded_action()
+
+        self.record_button = Button(base_x, base_y, half_width, button_height, "RECORD", toggle_record)
+        if self.is_recording_sequence:
+            self.record_button.text = "STOP"
+            self.record_button.color_idle = (0, 0, 200)
+
+        self.buttons.append(self.record_button)
+        self.buttons.append(
+            Button(base_x + half_width + 5, base_y, half_width, button_height, "PLAY", play_recorded_sequence))
+        base_y += button_height + 20
+
+        self.buttons.append(
+            Button(base_x, base_y, half_width, button_height, "< PREV", wrap_action(lambda: self.change_image(-1))))
+        self.buttons.append(Button(base_x + half_width + 5, base_y, half_width, button_height, "NEXT >",
+                                   wrap_action(lambda: self.change_image(1))))
+        base_y += button_height + 20
+
+        initial_threshold_value = self.thresh_slider.val if hasattr(self, 'thresh_slider') else 60
+        self.thresh_slider = Slider(base_x, base_y, button_width, 20, 0, 255, initial_threshold_value, "Threshold")
         self.sliders.append(self.thresh_slider)
-        by += 50
+        base_y += 40
 
-        def set_sort(idx):
-            self.current_sort_idx = idx
-            for b in self.buttons:
-                if b.group_id == "sort": b.active = (b.text == self.sort_modes[idx])
+        def set_sort_mode(target_index: int) -> None:
+            self.current_sort_idx = target_index
+            for button_element in self.buttons:
+                if button_element.group_id == "sort":
+                    button_element.active = (button_element.text == self.sort_modes[target_index])
 
-        cv2.putText(self.img_curr, "Sort Mode", (bx, by), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255))
-        for current_mode_index, mode_name in enumerate(self.sort_modes):
-            btn = Button(bx, by, bw, bh, mode_name, lambda index=current_mode_index: set_sort(index), group_id="sort",
-                         is_toggle=True)
-            if current_mode_index == self.current_sort_idx:
-                btn.active = True
-            self.buttons.append(btn)
-            by += bh + 5
+        for mode_index, mode_name in enumerate(self.sort_modes):
+            button_instance = Button(base_x, base_y, button_width, button_height, mode_name,
+                                     wrap_action(lambda target_index=mode_index: set_sort_mode(target_index)),
+                                     group_id="sort", is_toggle=True)
+            if mode_index == self.current_sort_idx:
+                button_instance.active = True
+            self.buttons.append(button_instance)
+            base_y += button_height + 5
 
-        by += 10
+        base_y += 10
 
-        # --- MASK MODES ---
-        def set_mask(mode):
-            self.current_mask_mode = mode
-            for b in self.buttons:
-                if b.group_id == "mask": b.active = (b.text.lower() == mode)
+        def set_mask_mode(target_mode: str) -> None:
+            self.current_mask_mode = target_mode
+            for button_element in self.buttons:
+                if button_element.group_id == "mask":
+                    button_element.active = (button_element.text.lower() == target_mode)
 
-        for mode in self.mask_modes:
-            btn = Button(bx, by, bw, bh, mode.upper(), lambda m=mode: set_mask(m), group_id="mask", is_toggle=True)
-            if mode == self.current_mask_mode: btn.active = True
-            self.buttons.append(btn)
-            by += bh + 5
+        for mask_mode_name in self.mask_modes:
+            button_instance = Button(base_x, base_y, button_width, button_height, mask_mode_name.upper(),
+                                     wrap_action(lambda target_mode=mask_mode_name: set_mask_mode(target_mode)),
+                                     group_id="mask", is_toggle=True)
+            if mask_mode_name == self.current_mask_mode:
+                button_instance.active = True
+            self.buttons.append(button_instance)
+            base_y += button_height + 5
 
-        by += 20
+        base_y += 20
 
-        # --- SORT ACTIONS ---
-        def sort_linear(direction, rev):
+        def sort_linear_action(direction_string: str, reverse_boolean: bool) -> None:
             self.save_state()
-            self.img_curr = pixel_sort_fast(
-                self.img_curr, self.current_mask_mode, self.current_sort_idx,
-                direction, self.thresh_slider.val, 2, rev
-            )
+            self.img_curr = pixel_sort_fast(self.img_curr, self.current_mask_mode, self.current_sort_idx,
+                                            direction_string, self.thresh_slider.val, 2, reverse_boolean)
 
-        self.buttons.append(Button(bx, by, bw, bh, "UP", lambda: sort_linear("vertical", False)))
-        by += bh + 5
-        self.buttons.append(Button(bx, by, half_w, bh, "LEFT", lambda: sort_linear("horizontal", True)))
-        self.buttons.append(Button(bx + half_w + 5, by, half_w, bh, "RIGHT", lambda: sort_linear("horizontal", False)))
-        by += bh + 5
-        self.buttons.append(Button(bx, by, bw, bh, "DOWN", lambda: sort_linear("vertical", True)))
-        by += bh + 20
+        self.buttons.append(Button(base_x, base_y, button_width, button_height, "UP",
+                                   wrap_action(lambda: sort_linear_action("vertical", False))))
+        base_y += button_height + 5
+        self.buttons.append(Button(base_x, base_y, half_width, button_height, "LEFT",
+                                   wrap_action(lambda: sort_linear_action("horizontal", True))))
+        self.buttons.append(Button(base_x + half_width + 5, base_y, half_width, button_height, "RIGHT",
+                                   wrap_action(lambda: sort_linear_action("horizontal", False))))
+        base_y += button_height + 5
+        self.buttons.append(Button(base_x, base_y, button_width, button_height, "DOWN",
+                                   wrap_action(lambda: sort_linear_action("vertical", True))))
+        base_y += button_height + 20
 
-        def sort_diag(angle):
+        def sort_diagonal_action(angle_integer: int) -> None:
             self.save_state()
-            self.img_curr = pixel_sort_diagonal(
-                self.img_curr, self.current_mask_mode, self.current_sort_idx,
-                self.thresh_slider.val, angle
-            )
+            self.img_curr = pixel_sort_diagonal(self.img_curr, self.current_mask_mode, self.current_sort_idx,
+                                                self.thresh_slider.val, angle_integer)
 
-        def sort_circle(mode):
+        def sort_circular_action(mode_string: str) -> None:
             self.save_state()
-            self.img_curr = pixel_sort_polar(
-                self.img_curr, self.current_mask_mode, self.current_sort_idx,
-                self.thresh_slider.val, mode
-            )
+            self.img_curr = pixel_sort_polar(self.img_curr, self.current_mask_mode, self.current_sort_idx,
+                                             self.thresh_slider.val, mode_string)
 
-        self.buttons.append(Button(bx, by, half_w, bh, "DIAG /", lambda: sort_diag(45)))
-        self.buttons.append(Button(bx + half_w + 5, by, half_w, bh, "DIAG \\", lambda: sort_diag(-45)))
-        by += bh + 5
-        self.buttons.append(Button(bx, by, half_w, bh, "CIRCLE", lambda: sort_circle('circle')))
-        self.buttons.append(Button(bx + half_w + 5, by, half_w, bh, "BURST", lambda: sort_circle('burst')))
+        self.buttons.append(
+            Button(base_x, base_y, half_width, button_height, "DIAG /", wrap_action(lambda: sort_diagonal_action(45))))
+        self.buttons.append(Button(base_x + half_width + 5, base_y, half_width, button_height, "DIAG \\",
+                                   wrap_action(lambda: sort_diagonal_action(-45))))
+        base_y += button_height + 5
+        self.buttons.append(Button(base_x, base_y, half_width, button_height, "CIRCLE",
+                                   wrap_action(lambda: sort_circular_action('circle'))))
+        self.buttons.append(Button(base_x + half_width + 5, base_y, half_width, button_height, "BURST",
+                                   wrap_action(lambda: sort_circular_action('burst'))))
+        base_y += button_height + 30
 
-        by += bh + 30
+        self.buttons.append(Button(base_x, base_y, button_width, button_height, "UNDO", wrap_action(self.undo)))
+        base_y += button_height + 5
 
-        self.buttons.append(Button(bx, by, bw, bh, "UNDO", self.undo))
-        by += bh + 5
-
-        def reset_action():
+        def reset_image_action() -> None:
             self.save_state()
             self.img_curr = self.img_orig.copy()
 
-        self.buttons.append(Button(bx, by, bw, bh, "RESET", reset_action))
-        by += bh + 5
+        self.buttons.append(
+            Button(base_x, base_y, button_width, button_height, "RESET", wrap_action(reset_image_action)))
+        base_y += button_height + 5
 
-        def save_file():
+        def save_processed_image() -> None:
             output_filename = f"sort_{datetime.now().strftime('%H%M%S')}.png"
             output_filepath = os.path.join(self.input_path, output_filename)
             Image.fromarray(self.img_curr).save(output_filepath)
             print(f"Saved {output_filepath}")
 
-        self.buttons.append(Button(bx, by, bw, bh, "SAVE IMG", save_file))
+        self.buttons.append(
+            Button(base_x, base_y, button_width, button_height, "SAVE IMG", wrap_action(save_processed_image)))
 
-    def mouse_callback(self, event, x, y, flags, param):
+    def mouse_callback(self, event: int, x: int, y: int, flags: int, param: any) -> None:
         self.mouse_x, self.mouse_y = x, y
-        for s in self.sliders: s.handle_input(x, y, event)
-        if event == cv2.EVENT_LBUTTONDOWN:
-            for b in self.buttons:
-                if b.is_inside(x, y): b.callback()
-        for b in self.buttons: b.hover = b.is_inside(x, y)
+        for slider_instance in self.sliders:
+            was_dragging = slider_instance.dragging
+            slider_instance.handle_input(x, y, event)
+            if was_dragging and not slider_instance.dragging:
+                if self.is_recording_sequence:
+                    captured_value = slider_instance.val
+                    self.recorded_sequence.append(
+                        lambda current_value=captured_value: setattr(slider_instance, 'val', current_value))
+                    self.last_interaction_time = time.time()
 
-    def run(self):
-        cv2.namedWindow("Pixel Sort Studio")
+        if event == cv2.EVENT_LBUTTONDOWN:
+            for button_instance in self.buttons:
+                if button_instance.is_inside(x, y):
+                    button_instance.callback()
+
+        for button_instance in self.buttons:
+            button_instance.hover = button_instance.is_inside(x, y)
+
+    def run(self) -> None:
+        cv2.namedWindow("Pixel Sort Studio", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Pixel Sort Studio", 1280, 720)
         cv2.setMouseCallback("Pixel Sort Studio", self.mouse_callback)
         warmup_jit()
 
+        internal_width: int = 1280
+        internal_height: int = 720
+        display_width: int = internal_width - self.ui_width
+
         while True:
-            canvas = np.zeros((self.canvas_h, self.canvas_w, 3), dtype=np.uint8)
+            current_time = time.time()
+            if self.is_recording_sequence and (current_time - self.last_interaction_time > 30.0):
+                self.is_recording_sequence = False
+                self.record_button.text = "RECORD"
+                self.record_button.color_idle = (50, 50, 50)
 
-            h, w = self.img_curr.shape[:2]
-            bgr_img = cv2.cvtColor(self.img_curr, cv2.COLOR_RGB2BGR)
-            canvas[:h, :w] = bgr_img
+            canvas = np.zeros((internal_height, internal_width, 3), dtype=np.uint8)
+            cv2.rectangle(canvas, (0, 0), (self.ui_width, internal_height), (35, 35, 35), -1)
 
-            cv2.rectangle(canvas, (w, 0), (self.canvas_w, self.canvas_h), (30, 30, 30), -1)
+            image_height, image_width = self.img_curr.shape[:2]
+            scale_ratio = min(display_width / image_width, internal_height / image_height)
+            new_width = int(image_width * scale_ratio)
+            new_height = int(image_height * scale_ratio)
+
+            bgr_image = cv2.cvtColor(self.img_curr, cv2.COLOR_RGB2BGR)
+            resized_image = cv2.resize(bgr_image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+
+            x_offset = self.ui_width + (display_width - new_width) // 2
+            y_offset = (internal_height - new_height) // 2
+
+            canvas[y_offset:y_offset+new_height, x_offset:x_offset+new_width] = resized_image
 
             if self.image_files:
-                fname = os.path.basename(self.image_files[self.current_index])
-                idx_str = f"{self.current_index + 1} / {len(self.image_files)}"
-
-                cv2.putText(canvas, fname, (10, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                cv2.putText(canvas, idx_str, (10, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+                file_name = os.path.basename(self.image_files[self.current_index])
+                index_string = f"{self.current_index + 1} / {len(self.image_files)}"
+                cv2.putText(canvas, file_name, (self.ui_width + 10, internal_height - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                cv2.putText(canvas, index_string, (self.ui_width + 10, internal_height - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
 
             status_text = f"Undo: {len(self.history)}"
-            cv2.putText(canvas, status_text, (w + 10, self.canvas_h - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
+            cv2.putText(canvas, status_text, (10, internal_height - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
 
-            for b in self.buttons: b.draw(canvas)
-            for s in self.sliders: s.draw(canvas)
+            for button_instance in self.buttons:
+                button_instance.draw(canvas)
+            for slider_instance in self.sliders:
+                slider_instance.draw(canvas)
 
             cv2.imshow("Pixel Sort Studio", canvas)
 
-            key = cv2.waitKey(1)
-            if key == 27: break
-            if key in [ord('z'), ord('Z')]: self.undo()
-
-            if key == ord('n'): self.change_image(1)
-            if key == ord('p'): self.change_image(-1)
+            keyboard_input = cv2.waitKey(1)
+            if keyboard_input == 27:
+                break
+            if keyboard_input in [ord('z'), ord('Z')]:
+                self.undo()
+            if keyboard_input == ord('n'):
+                self.change_image(1)
+            if keyboard_input == ord('p'):
+                self.change_image(-1)
 
         cv2.destroyAllWindows()
 
