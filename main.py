@@ -1,8 +1,6 @@
 import sys
 import os
 from datetime import datetime
-import tkinter as tk
-from tkinter import filedialog
 import numpy as np
 import cv2
 from PIL import Image
@@ -14,8 +12,16 @@ import time
 register_heif_opener()
 
 def get_target_directory() -> str:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except ImportError:
+        print("\n[!] Error: tkinter is not installed. \nOn Linux, install it via: 'sudo apt-get install python3-tk'")
+        sys.exit(1)
+
     root = tk.Tk()
     root.withdraw()
+    root.attributes('-topmost', True)
     selected_directory = filedialog.askdirectory(title="Select input/output folder")
     root.destroy()
     if not selected_directory:
@@ -575,9 +581,10 @@ class PixelSortApp:
             button_instance.hover = button_instance.is_inside(x, y)
 
     def run(self) -> None:
-        cv2.namedWindow("Pixel Sort Studio", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Pixel Sort Studio", 1440, 960)
-        cv2.setMouseCallback("Pixel Sort Studio", self.mouse_callback)
+        window_name: str = "Pixel Sort Studio"
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(window_name, 1440, 960)
+        cv2.setMouseCallback(window_name, self.mouse_callback)
         warmup_jit()
 
         internal_width: int = 1440
@@ -585,6 +592,9 @@ class PixelSortApp:
         display_width: int = internal_width - self.ui_width
 
         while True:
+            if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+                break
+
             canvas = np.zeros((internal_height, internal_width, 3), dtype=np.uint8)
             cv2.rectangle(canvas, (0, 0), (self.ui_width, internal_height), (35, 35, 35), -1)
 
@@ -615,7 +625,7 @@ class PixelSortApp:
             for slider_instance in self.sliders:
                 slider_instance.draw(canvas)
 
-            cv2.imshow("Pixel Sort Studio", canvas)
+            cv2.imshow(window_name, canvas)
 
             keyboard_input = cv2.waitKey(1)
             if keyboard_input == 27:
