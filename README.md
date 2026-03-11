@@ -1,3 +1,39 @@
+# Step 1: Clone the Repository
+```
+git clone https://github.com/your-username/your-repo-name.git
+cd your-repo-name
+```
+
+# Step 2: Create a Virtual Environment
+
+Windows
+```
+python -m venv venv
+.\venv\Scripts\activate
+```
+
+macOS/Linux
+```
+python3 -m venv venv
+source venv/bin/activate
+```
+
+# Step 3: Install Dependencies
+
+```
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+# Execution
+
+Since main.py is the entry point, you can run the application directly from the root directory:
+Bash
+
+```
+python main.py
+```
+
 Example images of the application:
 
 <img width="675" height="900" alt="sort_075811" src="https://github.com/user-attachments/assets/8149184f-40d3-4f7b-ab65-3e4432652271" />
