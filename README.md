@@ -4,7 +4,7 @@
 
 A browser-based pixel sorting tool for creating glitch art. Upload an image, choose a sorting direction, and watch pixels rearrange into striking visual patterns. Everything runs locally in your browser — no servers, no uploads, no data leaves your device.
 
-**[→ Try it live](https://your-username.github.io/Pixel-Sorting/)**
+**[→ Try it live](https://j-phi.github.io/Pixel-Sorting/)**
 
 ---
 
