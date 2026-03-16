@@ -1,11 +1,5 @@
 /inputs
 /.venv
-/.idea
-/inputs2
-/outputs
-/gepezet
-/deprecated
-/__pycache__
-PixelSortStudio.spec
-/dist
-/build
+/venv
+/archive
+*.png
