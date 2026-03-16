@@ -15,6 +15,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let isRecording = false;
     let recordedSequence = [];
 
+    // Auto mode
+    let autoMode = false;
+    let lastAction = null;  // { type, action, params }
+
     // ─── DOM ─────────────────────────────────────────────────────────────
     const canvas = document.getElementById('main-canvas');
     const ctx = canvas.getContext('2d');
@@ -45,12 +49,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         isWorkerBusy = false;
         loadingInd.classList.add('hidden');
-        setStatus('Ready');
+        setStatus(autoMode ? 'Auto ▶' : 'Ready');
 
         if (playingMacro && macroIndex < recordedSequence.length) {
             executeMacroStep();
         } else if (playingMacro) {
             playingMacro = false;
+        } else if (autoMode && lastAction) {
+            // Re-trigger the last action for auto mode
+            requestAnimationFrame(() => executeAction(lastAction.type, lastAction.action, lastAction.params));
         }
     };
 
@@ -173,6 +180,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // ─── Actions ─────────────────────────────────────────────────────────
     function executeAction(type, action, params = {}) {
         if (isRecording && type !== 'param') recordAction({ type, action, params });
+        // Track for auto mode
+        if (type !== 'param') lastAction = { type, action, params };
         if (type === 'linear')   dispatchWorkerTask('linear',   { ...params, maskMode, threshold, sortModeIdx });
         else if (type === 'diagonal') dispatchWorkerTask('diagonal', { ...params, maskMode, threshold, sortModeIdx });
         else if (type === 'polar')    dispatchWorkerTask('polar',    { ...params, maskMode, threshold, sortModeIdx });
@@ -185,9 +194,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-left').addEventListener('click',  () => executeAction('linear', 'sort', { direction: 'horizontal', reverse: true }));
     document.getElementById('btn-right').addEventListener('click', () => executeAction('linear', 'sort', { direction: 'horizontal', reverse: false }));
 
-    // Diagonal
-    document.getElementById('btn-diag-up').addEventListener('click',   () => executeAction('diagonal', 'sort', { angle: 45 }));
-    document.getElementById('btn-diag-down').addEventListener('click', () => executeAction('diagonal', 'sort', { angle: -45 }));
+    // Diagonal (angle -45 → x+y → / direction, angle 45 → x-y → \ direction)
+    document.getElementById('btn-diag-up').addEventListener('click',   () => executeAction('diagonal', 'sort', { angle: -45 }));
+    document.getElementById('btn-diag-down').addEventListener('click', () => executeAction('diagonal', 'sort', { angle: 45 }));
 
     // Polar
     document.getElementById('btn-circle').addEventListener('click', () => executeAction('polar', 'sort', { mode: 'circle' }));
@@ -295,13 +304,93 @@ document.addEventListener('DOMContentLoaded', () => {
         link.click();
     });
 
+    // ─── Auto Mode ───────────────────────────────────────────────────────
+    const btnAuto = document.getElementById('btn-auto');
+    btnAuto.addEventListener('click', () => {
+        autoMode = !autoMode;
+        if (autoMode) {
+            btnAuto.textContent = '■ Stop Auto';
+            btnAuto.classList.add('recording');
+            setStatus('Auto ▶');
+            // If we have a last action and worker is idle, kick it off
+            if (lastAction && !isWorkerBusy && currentImageData) {
+                executeAction(lastAction.type, lastAction.action, lastAction.params);
+            }
+        } else {
+            btnAuto.textContent = '⟳ Auto';
+            btnAuto.classList.remove('recording');
+            setStatus('Ready');
+        }
+    });
+
     // ─── Keyboard shortcuts ─────────────────────────────────────────────
+    const keysDown = new Set();
+    let keyHeld = false;   // true while a sort key is physically held
+
+    function resolveKeyAction() {
+        // Combos first (diagonal)
+        if (keysDown.has('s') && keysDown.has('d')) return { type: 'diagonal', action: 'sort', params: { angle: -45 } }; // Diag /
+        if (keysDown.has('d') && keysDown.has('f')) return { type: 'diagonal', action: 'sort', params: { angle: 45 } };  // Diag \
+
+        // Singles
+        if (keysDown.has('e')) return { type: 'linear', action: 'sort', params: { direction: 'vertical',   reverse: false } }; // Up
+        if (keysDown.has('s')) return { type: 'linear', action: 'sort', params: { direction: 'horizontal', reverse: true } };  // Left
+        if (keysDown.has('d')) return { type: 'linear', action: 'sort', params: { direction: 'vertical',   reverse: true } };  // Down
+        if (keysDown.has('f')) return { type: 'linear', action: 'sort', params: { direction: 'horizontal', reverse: false } }; // Right
+        if (keysDown.has('c')) return { type: 'polar',  action: 'sort', params: { mode: 'circle' } };
+        if (keysDown.has('b')) return { type: 'polar',  action: 'sort', params: { mode: 'burst' } };
+
+        return null;
+    }
+
     window.addEventListener('keydown', (e) => {
+        // Skip if typing in an input
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
         if (e.key === 'z' && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
             document.getElementById('btn-undo').click();
+            return;
+        }
+        if (e.key === 'Escape' && autoMode) {
+            btnAuto.click();
+            return;
+        }
+
+        const k = e.key.toLowerCase();
+        if ('esdfcb'.includes(k) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+            e.preventDefault();
+            if (keysDown.has(k)) return; // ignore OS key repeat
+            keysDown.add(k);
+            keyHeld = true;
+
+            const act = resolveKeyAction();
+            if (act && currentImageData && !isWorkerBusy) {
+                executeAction(act.type, act.action, act.params);
+            }
         }
     });
+
+    window.addEventListener('keyup', (e) => {
+        const k = e.key.toLowerCase();
+        keysDown.delete(k);
+        if (keysDown.size === 0 || !'esdfcb'.split('').some(c => keysDown.has(c))) {
+            keyHeld = false;
+        }
+    });
+
+    // Patch worker.onmessage to also handle key-hold repeat
+    const origOnMessage = worker.onmessage;
+    worker.onmessage = (e) => {
+        origOnMessage(e);
+        // If keys are still held and auto mode isn't already handling things, re-trigger
+        if (keyHeld && !autoMode && !playingMacro && !isWorkerBusy) {
+            const act = resolveKeyAction();
+            if (act && currentImageData) {
+                requestAnimationFrame(() => executeAction(act.type, act.action, act.params));
+            }
+        }
+    };
 
     // ─── Helpers ─────────────────────────────────────────────────────────
     function setStatus(text) { statusText.textContent = text; }
