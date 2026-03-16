@@ -343,9 +343,25 @@ document.addEventListener('DOMContentLoaded', () => {
         return null;
     }
 
+    // ─── Help Modal ─────────────────────────────────────────────────────
+    const helpModal = document.getElementById('help-modal');
+    function toggleHelp() { helpModal.classList.toggle('hidden'); }
+    document.getElementById('btn-help').addEventListener('click', toggleHelp);
+    document.getElementById('help-close').addEventListener('click', toggleHelp);
+    helpModal.addEventListener('click', (e) => { if (e.target === helpModal) toggleHelp(); });
+
     window.addEventListener('keydown', (e) => {
         // Skip if typing in an input
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+        // Help modal toggle
+        if (e.key === '?') { toggleHelp(); return; }
+
+        // Close help with Escape
+        if (e.key === 'Escape' && !helpModal.classList.contains('hidden')) {
+            toggleHelp();
+            return;
+        }
 
         if (e.key === 'z' && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();

@@ -20,15 +20,34 @@ Pixel sorting rearranges pixels along a line (row, column, diagonal, or radial p
 | **Sort by** | Hue · Luminance · Intensity |
 | **Mask** | Sobel (edges) · Bright · Dark |
 | **Effects** | Blur · Noise · RGB Shift |
-| **Workflow** | Undo · Reset · Record macro · Play macro · Save PNG |
+| **Workflow** | Undo · Reset · Record macro · Play macro · Auto · Save PNG |
+
+## Keyboard Shortcuts
+
+Press **?** at any time to see this in-app. Hold any sort key to continuously apply.
+
+| Key | Action |
+|---|---|
+| `E` | Sort Up |
+| `S` | Sort Left |
+| `D` | Sort Down |
+| `F` | Sort Right |
+| `S`+`D` | Diagonal / |
+| `D`+`F` | Diagonal \ |
+| `C` | Circle sort |
+| `B` | Burst sort |
+| `⌘/Ctrl`+`Z` | Undo |
+| `Esc` | Stop Auto mode / Close help |
+| `?` | Toggle help modal |
 
 ## Quick Start
 
 1. Open the app and **drag-and-drop** an image (or click **Upload**)
 2. Set the **threshold** — lower values = more sorting, higher = less
-3. Click a **sort direction** — the result appears in a moment
+3. Click a **sort direction** or press a keyboard shortcut (ESDF)
 4. Stack multiple operations, adjust the mask or sort mode, experiment
-5. **Save** the result as a PNG
+5. Turn on **Auto** to continuously re-apply the last action
+6. **Save** the result as a PNG
 
 ## Deploy Your Own
 

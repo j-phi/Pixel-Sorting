@@ -12,7 +12,7 @@
 
 <!-- ─── Sidebar ──────────────────────────────────────────────────────── -->
 <aside id="sidebar">
-    <div class="sidebar-logo">Pixel Sort Studio</div>
+    <div class="sidebar-logo">Pixel Sort Studio <button class="help-icon" id="btn-help" title="Keyboard shortcuts (?)">?</button></div>
 
     <!-- Upload -->
     <div class="section-label">Image</div>
@@ -147,6 +147,42 @@
     <div class="drop-zone">
         <span>📂</span>
         Drop your images here
+    </div>
+</div>
+
+<!-- ─── Help Modal ───────────────────────────────────────────────────── -->
+<div id="help-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h2>Keyboard Shortcuts</h2>
+            <button class="modal-close" id="help-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="shortcut-group">
+                <div class="shortcut-title">Sorting (ESDF)</div>
+                <div class="shortcut-row"><kbd>E</kbd> <span>Sort Up</span></div>
+                <div class="shortcut-row"><kbd>S</kbd> <span>Sort Left</span></div>
+                <div class="shortcut-row"><kbd>D</kbd> <span>Sort Down</span></div>
+                <div class="shortcut-row"><kbd>F</kbd> <span>Sort Right</span></div>
+            </div>
+            <div class="shortcut-group">
+                <div class="shortcut-title">Diagonal</div>
+                <div class="shortcut-row"><kbd>S</kbd>+<kbd>D</kbd> <span>Diag /</span></div>
+                <div class="shortcut-row"><kbd>D</kbd>+<kbd>F</kbd> <span>Diag \</span></div>
+            </div>
+            <div class="shortcut-group">
+                <div class="shortcut-title">Polar</div>
+                <div class="shortcut-row"><kbd>C</kbd> <span>Circle</span></div>
+                <div class="shortcut-row"><kbd>B</kbd> <span>Burst</span></div>
+            </div>
+            <div class="shortcut-group">
+                <div class="shortcut-title">General</div>
+                <div class="shortcut-row"><kbd>⌘/Ctrl</kbd>+<kbd>Z</kbd> <span>Undo</span></div>
+                <div class="shortcut-row"><kbd>Esc</kbd> <span>Stop Auto</span></div>
+                <div class="shortcut-row"><kbd>?</kbd> <span>Toggle this help</span></div>
+            </div>
+            <p class="help-hint">Hold any sort key to continuously apply the effect.</p>
+        </div>
     </div>
 </div>
 
